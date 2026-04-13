@@ -61,7 +61,7 @@ func (m replaceIfSetOrChanged) PlanModifyString(
 		return
 	}
 
-	if req.StateValue.IsNull() || !req.PlanValue.Equal(req.StateValue) {
+	if !req.PlanValue.Equal(req.StateValue) {
 		resp.RequiresReplace = true
 	}
 }
@@ -317,6 +317,13 @@ func (r *UserResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	state.Sid = types.StringValue(user.Sid)
 
 	state.Id = types.StringValue(user.Id)
+
+	if user.Authentication == "AzureAD" && connection.Provider == "sqlserver" {
+		state.EntraIDIdentifier = types.StringValue(sql.GetEntraIDIdentifierFromPrincipalId(ctx, connection, user.PrincipalId))
+		if logging.HasError(ctx) {
+			return
+		}
+	}
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
