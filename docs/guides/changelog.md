@@ -7,6 +7,12 @@ description: |-
 
 # Changelog
 
+## 5.4.4
+
+**Fixes:**
+
+* Fix permanent update loop for azuresql_user when entraid_identifier is added after initial creation due to null state preventing updates.
+
 ## 5.4.3
 
 **Fixes:**
