@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	memoize "github.com/kofalt/go-memoize"
 
+	mssql "github.com/microsoft/go-mssqldb"
 	_ "github.com/microsoft/go-mssqldb/azuread"
 )
 
@@ -183,6 +184,13 @@ func (cache ConnectionCache) DatabaseExists(ctx context.Context, connection Conn
 	serverConnection := cache.Connect(ctx, serverConnectionId, true, false)
 
 	if logging.HasError(ctx) {
+		logging.AddError(ctx,
+			"Server connection failed, unable to verify database exists",
+			fmt.Sprintf("Connecting to %s to verify that database %s exists failed. "+
+				"Check that you have permissions to access the server. "+
+				"his check can be disabled by setting `check_database_exists = false` "+
+				"on the azuresql provider.",
+				serverConnectionId, connection.Database))
 		return ConnectionResourceStatusUnknown
 	}
 
@@ -221,6 +229,30 @@ func retrySynapsePoolWarmup(ctx context.Context, connection *sql.DB) (err error)
 		error_sql_pool := regexp.MustCompile("The SQL pool is warming up.")
 		if err == nil || !error_sql_pool.MatchString(err.Error()) {
 			// the pool is no longer warning up, return the new error code
+			return err
+		}
+	}
+	return err
+}
+
+func isDatabaseUnavailableError(err error) bool {
+	var mssqlErr mssql.Error
+	return errors.As(err, &mssqlErr) && mssqlErr.Number == 40613
+}
+
+func retryDatabaseResume(ctx context.Context, connection *sql.DB) (err error) {
+	// Azure SQL serverless databases auto-pause after a period of inactivity.
+	// The first connection after auto-pause triggers a resume but returns error 40613.
+	// Microsoft docs state resume latency is generally in the order of one minute.
+	// Backoff delays: 5, 10, 15, 20, 30, 40 seconds (~120s total).
+	var delay = []int{5, 10, 15, 20, 30, 40}
+
+	for _, wait := range delay {
+		tflog.Info(ctx, fmt.Sprintf("Database is resuming from auto-pause. Waiting %d seconds before retry.", wait))
+		time.Sleep(time.Duration(wait) * time.Second)
+
+		err = connection.PingContext(ctx)
+		if err == nil || !isDatabaseUnavailableError(err) {
 			return err
 		}
 	}
@@ -274,6 +306,10 @@ func (cache ConnectionCache) Connect(ctx context.Context, connectionId string, s
 				if err != nil && error_sql_pool.MatchString(err.Error()) {
 					err = retrySynapsePoolWarmup(ctx, connection.Connection)
 				}
+
+				if err != nil && isDatabaseUnavailableError(err) {
+					err = retryDatabaseResume(ctx, connection.Connection)
+				}
 			}
 			return connection, err
 		},
@@ -305,10 +341,15 @@ func (cache ConnectionCache) Connect(ctx context.Context, connectionId string, s
 		if conn.ConnectionResourceStatus != ConnectionResourceStatusNotFound {
 			err := conn.Connection.PingContext(ctx)
 			if err != nil {
-				tflog.Info(ctx, fmt.Sprintf("Cached connection is unhealthy, recreating it: %s", err.Error()))
-				_ = conn.Connection.Close()
-				cache.Cache.Storage.Delete(connectionId)
-				return cache.Connect(ctx, connectionId, server, requiresExist)
+				if isDatabaseUnavailableError(err) {
+					err = retryDatabaseResume(ctx, conn.Connection)
+				}
+				if err != nil {
+					tflog.Info(ctx, fmt.Sprintf("Cached connection is unhealthy, recreating it: %s", err.Error()))
+					_ = conn.Connection.Close()
+					cache.Cache.Storage.Delete(connectionId)
+					return cache.Connect(ctx, connectionId, server, requiresExist)
+				}
 			}
 		}
 
