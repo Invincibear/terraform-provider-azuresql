@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -73,6 +74,9 @@ func (r *UserResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"id": schema.StringAttribute{
 				Computed:    true,
 				Description: "Unique identifier for terraform used to import the resource.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"database": schema.StringAttribute{
 				Optional:    true,
@@ -111,6 +115,9 @@ func (r *UserResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"principal_id": schema.Int64Attribute{
 				Computed:    true,
 				Description: "Principal ID of the user in the database.",
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
+				},
 			},
 			"authentication": schema.StringAttribute{
 				Required:    true,
@@ -125,6 +132,9 @@ func (r *UserResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"type": schema.StringAttribute{
 				Computed:    true,
 				Description: "Type of the user in the database. Possible types are TODO.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"login": schema.StringAttribute{
 				Optional:    true,
@@ -147,6 +157,9 @@ func (r *UserResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			},
 			"sid": schema.StringAttribute{
 				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
